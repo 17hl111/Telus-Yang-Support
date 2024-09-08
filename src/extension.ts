@@ -6,7 +6,7 @@ import { validateNamingConventions } from './diagnostics';
 
 export function activate(context: vscode.ExtensionContext) {
     let disposable = vscode.commands.registerCommand('extension.prepopulateYangFile', () => {
-        console.log("Command 'prepopulateYangFile' invoked.");
+        console.log("Command 'prepopulateYangFile' invoked!");
         const panel = vscode.window.createWebviewPanel(
             'prepopulateYangFile',
             'Prepopulate YANG File',
