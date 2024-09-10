@@ -24,7 +24,11 @@
       {
         "command": "extension.yangValidation",
         "title": "YANG Validation"
-      }
+      },
+      {
+        "command": "extension.quickfix",
+        "title": "Quick Fix"
+    }
     ],
     "languages": [
       {
@@ -45,7 +49,15 @@
         "scopeName": "source.yang",
         "path": "./src/syntax/yang.tmLanguage"
       }
-    ]
+    ],
+    "menus": {
+            "editor/title": [
+                {
+                    "command": "extension.quickfix",
+                    "group": "navigation"
+                }
+            ]
+        }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",

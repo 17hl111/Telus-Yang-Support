@@ -20,11 +20,14 @@ export function validateNamingConventions(document: vscode.TextDocument, diagnos
             const moduleStart = moduleMatch.index + 7; // 'module ' length is 7
             const moduleRange = new vscode.Range(document.positionAt(moduleStart), document.positionAt(moduleStart + moduleName.length));
             if (!moduleName.startsWith('telus-')) {
-                diagnosticList.push(new vscode.Diagnostic(
+                const diagnostic = new vscode.Diagnostic(
                     moduleRange,
                     `Module name "${moduleName}" should start with "telus-"`,
                     vscode.DiagnosticSeverity.Warning
-                ));
+                );
+            
+                diagnostic.code = 'moduleNamingConvention'; // 设置诊断信息的代码，以便 CodeActionProvider 识别
+                diagnosticList.push(diagnostic);
             }
 
 		const moduleEndPosition = document.positionAt(moduleMatch.index + moduleMatch[0].length);
