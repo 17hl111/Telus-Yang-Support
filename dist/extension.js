@@ -35,6 +35,29 @@ const vscode = __importStar(__webpack_require__(1));
 const child_process_1 = __webpack_require__(2);
 const fs = __importStar(__webpack_require__(3));
 const diagnostics_1 = __webpack_require__(4);
+class NamingConventionFixProvider {
+    provideCodeActions(document, range, context) {
+        // 过滤出诊断信息中属于 'moduleNamingConvention' 的问题
+        const diagnostics = context.diagnostics.filter(diag => diag.code === 'moduleNamingConvention');
+        if (diagnostics.length === 0) {
+            return;
+        }
+        // 创建一个修复操作
+        const fix = new vscode.CodeAction(`Prepend 'telus-' to module name`, vscode.CodeActionKind.QuickFix);
+        fix.edit = new vscode.WorkspaceEdit();
+        const diagnostic = diagnostics[0];
+        const moduleName = document.getText(diagnostic.range);
+        // 添加 'telus-' 到 module name
+        const newModuleName = `telus-${moduleName}`;
+        fix.edit.replace(document.uri, diagnostic.range, newModuleName);
+        fix.diagnostics = [diagnostic];
+        return [fix];
+    }
+    // 注册该 Quick Fix 为可用的 CodeAction
+    static providedCodeActionKinds = [
+        vscode.CodeActionKind.QuickFix
+    ];
+}
 function activate(context) {
     let disposable = vscode.commands.registerCommand('extension.prepopulateYangFile', () => {
         console.log("Command 'prepopulateYangFile' invoked.");
@@ -91,6 +114,9 @@ function activate(context) {
             (0, diagnostics_1.validateNamingConventions)(document, diagnostics);
         }
     }));
+    vscode.languages.registerCodeActionsProvider('yang', new NamingConventionFixProvider(), {
+        providedCodeActionKinds: [vscode.CodeActionKind.QuickFix]
+    });
 }
 function getWebviewContent_prepopulation() {
     return `
@@ -329,7 +355,9 @@ function validateNamingConventions(document, diagnostics) {
         const moduleStart = moduleMatch.index + 7; // 'module ' length is 7
         const moduleRange = new vscode.Range(document.positionAt(moduleStart), document.positionAt(moduleStart + moduleName.length));
         if (!moduleName.startsWith('telus-')) {
-            diagnosticList.push(new vscode.Diagnostic(moduleRange, `Module name "${moduleName}" should start with "telus-"`, vscode.DiagnosticSeverity.Warning));
+            const diagnostic = new vscode.Diagnostic(moduleRange, `Module name "${moduleName}" should start with "telus-"`, vscode.DiagnosticSeverity.Warning);
+            diagnostic.code = 'moduleNamingConvention'; // 设置诊断信息的代码，以便 CodeActionProvider 识别
+            diagnosticList.push(diagnostic);
         }
         const moduleEndPosition = document.positionAt(moduleMatch.index + moduleMatch[0].length);
         const nextLine = moduleEndPosition.line + 1;
