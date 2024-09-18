@@ -28,7 +28,11 @@
       {
         "command": "extension.quickfix",
         "title": "Quick Fix"
-    }
+      },
+      {
+        "command": "extension.yangQuickValidation",
+        "title": "yang Quick Validation"
+      }
     ],
     "languages": [
       {
@@ -51,13 +55,20 @@
       }
     ],
     "menus": {
-            "editor/title": [
-                {
-                    "command": "extension.quickfix",
-                    "group": "navigation"
-                }
-            ]
+      "editor/title": [
+        {
+          "command": "extension.quickfix",
+          "group": "navigation"
         }
+      ],
+      "editor/context": [
+        {
+          "command": "extension.yangQuickValidation",
+          "group": "navigation",
+          "when": "resourceLangId == yang"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",

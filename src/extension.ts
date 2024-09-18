@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import axios from 'axios';
 import { exec } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -76,6 +77,7 @@ export function activate(context: vscode.ExtensionContext) {
                 vscode.ViewColumn.One,
                 { enableScripts: true }
             );
+            
 
             // 在 Webview 中展示 HTML 内容
             panel.webview.html = getWebviewContent_validation();
@@ -92,6 +94,56 @@ export function activate(context: vscode.ExtensionContext) {
                 undefined,
                 context.subscriptions
             );
+        })
+    );
+
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('extension.openGitLabConnectWebview', () => {
+            const panel = vscode.window.createWebviewPanel(
+                'gitLabConnect', // 这个 Webview 的唯一标识
+                'Connect to GitLab', // 面板标题
+                vscode.ViewColumn.One, // 显示在哪个区域
+                { enableScripts: true } // 启用 JavaScript
+            );
+
+            panel.webview.html = getWebviewContent_gitlabconnection(); // 设置 HTML 内容
+
+            // 监听 Webview 中的消息
+            panel.webview.onDidReceiveMessage(async (message) => {
+                if (message.command === 'connect') {
+                    const { gitLabUrl, privateToken, pathToCert } = message;
+                    connectToGitLab(gitLabUrl, privateToken, pathToCert);
+                }
+            });
+        })
+    );
+
+
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('extension.yangQuickValidation', () => {
+            vscode.window.showInformationMessage("The command is invoked!");
+            const editor = vscode.window.activeTextEditor;
+            if (editor) {
+                const document = editor.document;
+                const filePath = document.uri.fsPath;
+    
+                // 调用 pyang 来验证 YANG 文件
+                exec(`pyang ${filePath}`, (error, stdout, stderr) => {
+                    if (error) {
+                        vscode.window.showErrorMessage(`Error running pyang: ${error.message}`);
+                        return;
+                    }
+                    if (stderr) {
+                        vscode.window.showErrorMessage(`pyang validation error: ${stderr}`);
+                        return;
+                    }
+                    vscode.window.showInformationMessage(`Validation successful: ${stdout}`);
+                });
+            }else{
+                
+            }
         })
     );
 
@@ -310,6 +362,91 @@ function validateYangFile(filePath: string, expectedVersion: string) {
             vscode.window.showErrorMessage(`Version mismatch! Found ${version}, but expected ${expectedVersion}.`);
         }
     });
+}
+
+
+function getWebviewContent_gitlabconnection() {
+    return `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Connect to GitLab</title>
+        </head>
+        <body>
+            <h1>Connect to GitLab</h1>
+            <form id="gitLabForm">
+                <label for="gitLabUrl">GitLab URL:</label>
+                <input type="text" id="gitLabUrl" name="gitLabUrl"><br><br>
+                
+                <label for="privateToken">Private Token:</label>
+                <input type="text" id="privateToken" name="privateToken"><br><br>
+
+                <label for="pathToCert">Path to CA Certificate:</label>
+                <input type="text" id="pathToCert" name="pathToCert"><br><br>
+
+                <button type="button" onclick="connect()">Connect to GitLab</button>
+            </form>
+
+            <script>
+                const vscode = acquireVsCodeApi();
+
+                function connect() {
+                    const gitLabUrl = document.getElementById('gitLabUrl').value;
+                    const privateToken = document.getElementById('privateToken').value;
+                    const pathToCert = document.getElementById('pathToCert').value;
+
+                    vscode.postMessage({
+                        command: 'connect',
+                        gitLabUrl,
+                        privateToken,
+                        pathToCert
+                    });
+                }
+            </script>
+        </body>
+        </html>
+    `;
+}
+
+// 连接到 GitLab 的函数
+async function connectToGitLab(gitLabUrl: string, privateToken: string, pathToCert: string) {
+    if (gitLabUrl === '' || privateToken === '' || pathToCert === '') {
+        vscode.window.showErrorMessage('GitLab URL, Token, and Path to Certification are required.');
+        return;
+    }
+    
+    if (!fs.existsSync(pathToCert)) {
+        vscode.window.showErrorMessage('CA cert not found');
+        return;
+    }
+
+    const ca = fs.readFileSync(pathToCert);
+
+    try {
+        const response = await axios.get(gitLabUrl, {
+            headers: {
+                'PRIVATE-TOKEN': privateToken
+            },
+            httpsAgent: new https.Agent({
+                ca: ca,
+                rejectUnauthorized: false
+            })
+        });
+
+        if (response.status === 200) {
+            vscode.window.showInformationMessage('Successfully connected to GitLab');
+        }
+    } catch (error) {
+        if (axios.isAxiosError(error)) {
+            vscode.window.showErrorMessage(`Error: ${error.message}`);
+        } else if (error instanceof Error) {
+            vscode.window.showErrorMessage(`Error: ${error.message}`);
+        } else {
+            vscode.window.showErrorMessage('Unknown error occurred');
+        }
+    }
 }
 
 export function deactivate() {}
