@@ -3,6 +3,7 @@ import axios from 'axios';
 import { exec } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as https from 'https';
 import { validateNamingConventions } from './diagnostics';
 
 
@@ -99,21 +100,67 @@ export function activate(context: vscode.ExtensionContext) {
 
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('extension.openGitLabConnectWebview', () => {
+        vscode.commands.registerCommand('extension.connectGitLab', () => {
             const panel = vscode.window.createWebviewPanel(
-                'gitLabConnect', // 这个 Webview 的唯一标识
-                'Connect to GitLab', // 面板标题
-                vscode.ViewColumn.One, // 显示在哪个区域
-                { enableScripts: true } // 启用 JavaScript
+                'gitLabConnection',
+                'Connect to GitLab',
+                vscode.ViewColumn.One,
+                {
+                    enableScripts: true
+                }
             );
 
-            panel.webview.html = getWebviewContent_gitlabconnection(); // 设置 HTML 内容
+            // 设置Webview内容
+            panel.webview.html = getWebviewContent_gitlabconnection();
 
-            // 监听 Webview 中的消息
-            panel.webview.onDidReceiveMessage(async (message) => {
-                if (message.command === 'connect') {
-                    const { gitLabUrl, privateToken, pathToCert } = message;
-                    connectToGitLab(gitLabUrl, privateToken, pathToCert);
+            // 监听来自Webview的消息
+            panel.webview.onDidReceiveMessage(async message => {
+                if (message.command === 'selectCAFile') {
+                    // 打开文件选择对话框
+                    const caFileUri = await vscode.window.showOpenDialog({
+                        canSelectFiles: true,
+                        openLabel: 'Select CA Certificate',
+                        filters: {
+                            'Certificate Files': ['crt', 'pem'],
+                            'All Files': ['*']
+                        }
+                    });
+
+                    if (caFileUri && caFileUri.length > 0) {
+                        const caFilePath = caFileUri[0].fsPath;
+                        panel.webview.postMessage({ command: 'caFilePath', path: caFilePath });
+                    }
+                } else if (message.command === 'connect') {
+                    const { gitLabUrl, privateToken, caFilePath } = message;
+
+                    if (!gitLabUrl || !privateToken || !caFilePath) {
+                        vscode.window.showErrorMessage('GitLab URL, Private Token, and CA file are required.');
+                        return;
+                    }
+
+                    try {
+                        const ca = fs.readFileSync(caFilePath);
+
+                        const response = await axios.get(gitLabUrl, {
+                            headers: {
+                                'PRIVATE-TOKEN': privateToken
+                            },
+                            httpsAgent: new https.Agent({
+                                ca: ca,
+                                rejectUnauthorized: false
+                            })
+                        });
+
+                        if (response.status === 200) {
+                            vscode.window.showInformationMessage('Successfully connected to GitLab!');
+                        }
+                    } catch (error) {
+                        if (error instanceof Error) {
+                            vscode.window.showErrorMessage(`Failed to connect: ${error.message}`);
+                        } else {
+                            vscode.window.showErrorMessage('Unknown error occurred.');
+                        }
+                    }
                 }
             });
         })
@@ -365,7 +412,7 @@ function validateYangFile(filePath: string, expectedVersion: string) {
 }
 
 
-function getWebviewContent_gitlabconnection() {
+function getWebviewContent_gitlabconnection(){
     return `
         <!DOCTYPE html>
         <html lang="en">
@@ -375,39 +422,51 @@ function getWebviewContent_gitlabconnection() {
             <title>Connect to GitLab</title>
         </head>
         <body>
-            <h1>Connect to GitLab</h1>
-            <form id="gitLabForm">
-                <label for="gitLabUrl">GitLab URL:</label>
-                <input type="text" id="gitLabUrl" name="gitLabUrl"><br><br>
-                
-                <label for="privateToken">Private Token:</label>
-                <input type="text" id="privateToken" name="privateToken"><br><br>
-
-                <label for="pathToCert">Path to CA Certificate:</label>
-                <input type="text" id="pathToCert" name="pathToCert"><br><br>
-
-                <button type="button" onclick="connect()">Connect to GitLab</button>
+            <h2>Connect to GitLab</h2>
+            <form>
+                <label for="gitLabUrl">GitLab URL:</label><br>
+                <input type="text" id="gitLabUrl" name="gitLabUrl" placeholder="https://gitlab.yourcompany.com"><br>
+                <label for="privateToken">Private Token:</label><br>
+                <input type="password" id="privateToken" name="privateToken"><br>
+                <label for="caFile">CA Certificate Path:</label><br>
+                <input type="text" id="caFile" readonly><br>
+                <button type="button" id="selectCAFileButton">Select CA Certificate</button><br><br>
+                <button type="button" id="connectButton">Connect to GitLab</button>
             </form>
 
             <script>
                 const vscode = acquireVsCodeApi();
 
-                function connect() {
+                // 选择 CA 文件
+                document.getElementById('selectCAFileButton').addEventListener('click', () => {
+                    vscode.postMessage({ command: 'selectCAFile' });
+                });
+
+                // 连接到 GitLab
+                document.getElementById('connectButton').addEventListener('click', () => {
                     const gitLabUrl = document.getElementById('gitLabUrl').value;
                     const privateToken = document.getElementById('privateToken').value;
-                    const pathToCert = document.getElementById('pathToCert').value;
-
+                    const caFilePath = document.getElementById('caFile').value;
                     vscode.postMessage({
                         command: 'connect',
                         gitLabUrl,
                         privateToken,
-                        pathToCert
+                        caFilePath
                     });
-                }
+                });
+
+                // 接收 CA 文件路径的回调
+                window.addEventListener('message', event => {
+                    const message = event.data;
+                    if (message.command === 'caFilePath') {
+                        document.getElementById('caFile').value = message.path;
+                    }
+                });
             </script>
         </body>
         </html>
     `;
+    
 }
 
 // 连接到 GitLab 的函数
