@@ -39,6 +39,7 @@ class NamingConventionFixProvider implements vscode.CodeActionProvider {
 
 
 export function activate(context: vscode.ExtensionContext) {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
     let disposable = vscode.commands.registerCommand('extension.prepopulateYangFile', () => {
         console.log("Command 'prepopulateYangFile' invoked.");
         const panel = vscode.window.createWebviewPanel(
@@ -140,6 +141,7 @@ export function activate(context: vscode.ExtensionContext) {
 
                     try {
                         const ca = fs.readFileSync(caFilePath);
+                        console.log(ca);
 
                         const response = await axios.get(gitLabUrl, {
                             headers: {
@@ -160,6 +162,107 @@ export function activate(context: vscode.ExtensionContext) {
                         } else {
                             vscode.window.showErrorMessage('Unknown error occurred.');
                         }
+                    }
+                }
+            });
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('extension.triggerPipeline', function () {
+            // 创建一个 Webview 面板
+            const panel = vscode.window.createWebviewPanel(
+                'triggerPipeline',
+                'Trigger Pipeline',
+                vscode.ViewColumn.One,
+                {
+                    enableScripts: true // 允许 Webview 执行脚本
+                }
+            );
+    
+            // 为 Webview 设置 HTML 内容
+            panel.webview.html = getWebviewContent_triggerpipeline();
+    
+            // 处理从 Webview 传来的消息
+            panel.webview.onDidReceiveMessage(async (message) => {
+                if (message.command === 'triggerPipeline') {
+                    try {
+                        // 1. 弹出文件选择对话框，用户选择证书文件
+                        const fileUri = await vscode.window.showOpenDialog({
+                            canSelectMany: false,
+                            openLabel: 'Select Certificate',
+                            filters: {
+                                'Certificates': ['crt', 'pem', 'cer']
+                            }
+                        });
+    
+                        if (fileUri && fileUri.length > 0) {
+                            const pathToCert = fileUri[0].fsPath;
+    
+                            // 读取证书文件
+                            const ca = fs.readFileSync(pathToCert);
+    
+                            // 创建 Post 数据
+                            const postdata = new FormData();
+                            postdata.append('token', message.triggerToken);
+                            postdata.append('variables[COMMIT_ID]', message.commitId);
+                            postdata.append('variables[ENTITY_NAME]', message.entityName);
+                            postdata.append('variables[MODEL_COMMIT_ID]', message.modelCommitId);
+                            postdata.append('variables[MODEL_FILENAME]', message.modelFilename);
+                            postdata.append('variables[MODEL_NAME]', message.modelName);
+                            postdata.append('variables[MODEL_URL]', message.modelUrl);
+                            postdata.append('variables[URL]', message.url);
+    
+                            // GitLab API 的触发 URL
+                            const pipeurl = `https://gitlab.tinaa.osc.tac.net/api/v4/projects/720/trigger/pipeline`;
+    
+                            // 发送请求触发流水线
+                            const response = await axios.post(pipeurl, postdata, {
+                                headers: {
+                                    'PRIVATE-TOKEN': message.privateToken,
+                                },
+                                httpsAgent: new https.Agent({
+                                    ca: ca,
+                                    rejectUnauthorized: false,
+                                }),
+                            });
+    
+                            // 成功触发流水线后
+                            if (response.status === 201 || response.status === 200) {
+                                vscode.window.showInformationMessage('Pipeline triggered successfully!');
+    
+                                // 获取流水线状态和 ID
+                                const pipelinesUrl = `https://gitlab.tinaa.osc.tac.net/api/v4/projects/720/pipelines`;
+                                const pipelinesResponse = await axios.get(pipelinesUrl, {
+                                    headers: { 'PRIVATE-TOKEN': message.privateToken },
+                                    httpsAgent: new https.Agent({
+                                        ca: ca,
+                                        rejectUnauthorized: false,
+                                    }),
+                                    params: {
+                                        ref: message.ref,
+                                        per_page: 1,
+                                        order_by: 'id',
+                                        sort: 'desc',
+                                    },
+                                });
+    
+                                if (pipelinesResponse.status === 200 && pipelinesResponse.data.length > 0) {
+                                    const pipelineId = pipelinesResponse.data[0].id;
+                                    vscode.window.showInformationMessage(`Pipeline ID: ${pipelineId}`);
+                                    panel.webview.postMessage({ command: 'pipelineId', pipelineId: pipelineId });
+                                } else {
+                                    vscode.window.showErrorMessage('Failed to retrieve the latest pipeline ID');
+                                }
+                            } else {
+                                vscode.window.showErrorMessage(`Failed to trigger pipeline: ${response.statusText}`);
+                            }
+                        } else {
+                            vscode.window.showErrorMessage('Certificate file was not selected.');
+                        }
+                    } catch (error) {
+                        const errorMessage = (error as Error).message || 'Unknown error';
+                        vscode.window.showErrorMessage(`Error triggering pipeline: ${errorMessage}`);
                     }
                 }
             });
@@ -286,6 +389,80 @@ function getWebviewContent_prepopulation() {
                         data: data
                     });
                 }
+            </script>
+        </body>
+        </html>
+    `;
+}
+
+function getWebviewContent_triggerpipeline() {
+    return `
+        <!DOCTYPE html>
+        <html lang="en">
+        <body>
+            <h2>Trigger GitLab Pipeline</h2>
+
+            <label for="privateToken">Private Token:</label><br>
+            <input type="text" id="privateToken" /><br>
+
+            <label for="triggerToken">Trigger Token:</label><br>
+            <input type="text" id="triggerToken" /><br>
+
+            <label for="ref">Ref:</label><br>
+            <input type="text" id="ref" /><br>
+
+            <label for="commitId">Commit ID:</label><br>
+            <input type="text" id="commitId" /><br>
+
+            <label for="entityName">Entity Name:</label><br>
+            <input type="text" id="entityName" /><br>
+
+            <label for="modelCommitId">Model Commit ID:</label><br>
+            <input type="text" id="modelCommitId" /><br>
+
+            <label for="modelFilename">Model Filename:</label><br>
+            <input type="text" id="modelFilename" /><br>
+
+            <label for="modelName">Model Name:</label><br>
+            <input type="text" id="modelName" /><br>
+
+            <label for="modelUrl">Model URL:</label><br>
+            <input type="text" id="modelUrl" /><br>
+
+            <label for="url">URL:</label><br>
+            <input type="text" id="url" /><br><br>
+
+            <button id="triggerPipelineButton">Trigger Pipeline</button>
+
+            <script>
+                const vscode = acquireVsCodeApi();
+
+                document.getElementById('triggerPipelineButton').addEventListener('click', () => {
+                    const privateToken = document.getElementById('privateToken').value;
+                    const triggerToken = document.getElementById('triggerToken').value;
+                    const ref = document.getElementById('ref').value;
+                    const commitId = document.getElementById('commitId').value;
+                    const entityName = document.getElementById('entityName').value;
+                    const modelCommitId = document.getElementById('modelCommitId').value;
+                    const modelFilename = document.getElementById('modelFilename').value;
+                    const modelName = document.getElementById('modelName').value;
+                    const modelUrl = document.getElementById('modelUrl').value;
+                    const url = document.getElementById('url').value;
+
+                    vscode.postMessage({
+                        command: 'triggerPipeline',
+                        privateToken,
+                        triggerToken,
+                        ref,
+                        commitId,
+                        entityName,
+                        modelCommitId,
+                        modelFilename,
+                        modelName,
+                        modelUrl,
+                        url
+                    });
+                });
             </script>
         </body>
         </html>

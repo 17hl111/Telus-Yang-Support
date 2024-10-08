@@ -36,7 +36,11 @@
       {
         "command": "extension.connectGitLab",
         "title": "Connect to GitLab"
-    }
+      },
+      {
+        "command": "extension.triggerPipeline",
+        "title": "Trigger Pipeline"
+      }
     ],
     "languages": [
       {
